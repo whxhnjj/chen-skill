@@ -10,6 +10,52 @@ APP_JS = ROOT / "assets" / "codex-harness-app" / "web" / "app.js"
 
 
 class FrontendApiTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for the session regression test")
+    def test_logged_in_members_can_submit_with_csrf_and_invalid_sessions_fail(self):
+        harness = r'''
+const fs = require("fs");
+const vm = require("vm");
+const assert = require("assert");
+let redirected = null;
+global.window = {
+  addEventListener() {},
+  location: { assign(url) { redirected = url; } }
+};
+global.document = {};
+vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+
+(async () => {
+  for (const role of ["member", "root"]) {
+    const calls = [];
+    global.fetch = async (url, options) => {
+      calls.push({ url, options });
+      return { status: 200, ok: true, json: async () => ({ data:
+        url === "/api/v1/session" ? { role, csrfToken: role + "-csrf" } : { token_configured: true }
+      }) };
+    };
+    await loadSession(true);
+    assert.deepStrictEqual(await api("/api/token", { method: "POST", body: '{}' }), { token_configured: true });
+    assert.strictEqual(calls[1].options.headers["x-csrf-token"], role + "-csrf");
+    assert.strictEqual(calls[1].url, "/custom-api/amazon-image-generator/api/token");
+  }
+  for (const session of [null, {}, [], { role: null }, { role: 1 }, { role: " " }]) {
+    global.fetch = async () => ({ status: 200, ok: true, json: async () => ({ data: session }) });
+    await assert.rejects(() => loadSession(true));
+  }
+  global.fetch = async () => ({ status: 401, ok: false });
+  await assert.rejects(() => loadSession(true));
+  assert.strictEqual(redirected, "/login");
+})().catch((error) => { console.error(error); process.exit(1); });
+'''
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8") as script:
+            script.write(harness)
+            script.flush()
+            result = subprocess.run(
+                [shutil.which("node"), script.name, str(APP_JS)],
+                cwd=ROOT, text=True, capture_output=True, timeout=20,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for the browser API regression test")
     def test_invalid_success_envelopes_are_recoverable_errors(self):
         harness = r'''

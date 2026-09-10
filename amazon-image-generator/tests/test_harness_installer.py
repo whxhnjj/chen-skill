@@ -39,7 +39,7 @@ class HarnessInstallerTests(unittest.TestCase):
             target = apps_root / "amazon-image-generator"
             manifest = json.loads((target / "app.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["name"], "飞鱼神图")
-            self.assertEqual(manifest["visibility"], "root")
+            self.assertEqual(manifest["visibility"], "members")
             self.assertNotIn("icon", manifest)
             self.assertEqual(output["entry"], "/custom/apps/amazon-image-generator/index.html")
             self.assertFalse(output["backend_started"])
@@ -58,11 +58,17 @@ class HarnessInstallerTests(unittest.TestCase):
             first = self.run_installer(apps_root)
             self.assertEqual(first.returncode, 0, first.stderr)
             target = apps_root / "amazon-image-generator"
+            manifest_path = target / "app.json"
+            old_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            old_manifest["visibility"] = "root"
+            manifest_path.write_text(json.dumps(old_manifest), encoding="utf-8")
             token = target / "data" / "feiyushentu.toml"
             token.write_text('feiyushentu_token = "test-only-secret"\n', encoding="utf-8")
             token.chmod(0o600)
             database = target / "data" / "app.sqlite3"
             database.write_bytes(b"existing-database")
+            image = target / "data" / "generated" / "existing.png"
+            image.write_bytes(b"existing-image")
             (target / "web" / "index.html").write_text("old code", encoding="utf-8")
 
             second = self.run_installer(apps_root)
@@ -70,10 +76,13 @@ class HarnessInstallerTests(unittest.TestCase):
             self.assertEqual(second.returncode, 0, second.stderr)
             output = json.loads(second.stdout)
             backup = Path(output["backup"])
+            self.assertEqual(json.loads(manifest_path.read_text(encoding="utf-8"))["visibility"], "members")
+            self.assertEqual(json.loads((backup / "app.json").read_text(encoding="utf-8"))["visibility"], "root")
             self.assertTrue((backup / "web" / "index.html").is_file())
             self.assertEqual(token.read_text(encoding="utf-8"), 'feiyushentu_token = "test-only-secret"\n')
             self.assertEqual(stat.S_IMODE(token.stat().st_mode), 0o600)
             self.assertEqual(database.read_bytes(), b"existing-database")
+            self.assertEqual(image.read_bytes(), b"existing-image")
             self.assertNotEqual((target / "web" / "index.html").read_text(encoding="utf-8"), "old code")
             self.assertTrue(output["data_preserved"])
             self.assertFalse(output["token_copied"])

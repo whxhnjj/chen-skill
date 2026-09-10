@@ -609,8 +609,10 @@ def harness_session(headers) -> dict:
     session = envelope.get("data") if isinstance(envelope, dict) else None
     if not isinstance(session, dict):
         raise AppError(401, "unauthorized", "登录状态已失效，请重新登录。")
-    if session.get("role") != "root":
-        raise AppError(403, "root_required", "飞鱼神图栏目当前仅对管理员开放。")
+    # Harness authenticates the session; all logged-in members share this app.
+    role = session.get("role")
+    if not isinstance(role, str) or not role.strip():
+        raise AppError(401, "unauthorized", "登录状态已失效，请重新登录。")
     return session
 
 

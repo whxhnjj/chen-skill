@@ -9,7 +9,8 @@ An explicit request to install this skill on the website authorizes the normal, 
 - App slug: `amazon-image-generator`
 - Navigation name: `飞鱼神图`
 - Page title: `飞鱼神图 · 亚马逊图片生成`
-- Visibility: `root`
+- Visibility: `members` (all authenticated Harness members, including administrators).
+- Access model: every logged-in member can configure or replace the one shared Token, generate images, and view, download, or retry shared history. There is no per-user data isolation or administrator-only operation. Keep Harness session verification and CSRF checks; unauthenticated users cannot use business APIs or image downloads.
 - Navigation order: `40`
 - Navigation icon: follow the host navigation. The bundled Harness 0.20.1 manifest omits `icon` because the native primary navigation is text-only.
 - Page behavior: standalone custom-app page with a visible `工作台` back link; do not imitate or duplicate the Harness navigation.
@@ -61,6 +62,7 @@ The installer:
 - installs the tested page and backend template;
 - vendors the current `feiyushentu_amazon.py` helper;
 - preserves all app-owned data and the Token;
+- replaces the old administrator-only manifest and frontend/backend checks with member access on updates as well as fresh installs;
 - restores restrictive modes and `root:skilldeck` / `skilldeck:skilldeck` ownership;
 - starts the loopback backend unless `--no-start` is passed.
 
@@ -147,12 +149,15 @@ Also confirm:
 - the original website still responds normally;
 - the custom entry redirects unauthenticated users to login;
 - unauthenticated business API requests return `401`;
+- ordinary members and administrators can open the page, configure the shared Token, generate images, and use shared history/download/retry actions;
+- missing or invalid CSRF tokens still reject mutations with `403 csrf_invalid`;
+- an update from the old `root` template installs `members` access and preserves the existing shared Token, database, and image files;
 - `GET /api/v1/custom/apps` has no rejection for this app when an authenticated session is available;
-- no Token appears in HTML, browser storage, responses, logs, process arguments, or backups;
+- no Token appears in HTML, browser storage, responses, logs, process arguments, or code backups;
 - generated files remain under the app `data/` directory;
 - HTTP support is described separately from actual HTTPS certificate availability.
 - the exact public HTTP/HTTPS origin returns an application/json health envelope rather than the Harness HTML fallback page.
 
 ## Installed Feature Set
 
-The bundled page provides local JPG/PNG/WebP upload (up to 6 files, 12 MB each), a fixed 1–15 generation-count selector whose labels are `生成 N 张` and whose submitted values are numeric-only, server-side Token configuration, model and style settings, asynchronous status tracking, distinct generation/archive errors, retry, responsive result gallery, local archive downloads, recent task history, SQLite persistence, root-only Harness session checks, CSRF validation, and HTTP risk acknowledgement.
+The bundled page provides local JPG/PNG/WebP upload (up to 6 files, 12 MB each), a fixed 1–15 generation-count selector whose labels are `生成 N 张` and whose submitted values are numeric-only, server-side Token configuration, model and style settings, asynchronous status tracking, distinct generation/archive errors, retry, responsive result gallery, local archive downloads, recent task history, SQLite persistence, authenticated Harness member access with shared Token/data, CSRF validation, and HTTP risk acknowledgement.

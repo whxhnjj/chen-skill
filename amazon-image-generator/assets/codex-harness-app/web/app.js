@@ -25,7 +25,9 @@ async function loadSession(force = false) {
     throw new Error("登录接口返回异常，请刷新页面；若仍失败，请检查 Codex Harness 服务。");
   }
   const session = envelope.data;
-  if (!session || session.role !== "root") throw new Error("飞鱼神图栏目当前仅对管理员开放。");
+  if (typeof session.role !== "string" || !session.role.trim()) {
+    throw new Error("登录状态已失效，请重新登录。");
+  }
   csrfToken = session.csrfToken;
   return csrfToken;
 }

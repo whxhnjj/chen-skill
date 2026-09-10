@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,6 +11,58 @@ SPEC = importlib.util.spec_from_file_location("feiyu_module_server", MODULE_PATH
 SERVER = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(SERVER)
+
+
+class SessionTests(unittest.TestCase):
+    def session_response(self, data):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps({"data": data}).encode()
+        return mock.patch.object(SERVER.urllib.request, "urlopen", return_value=response)
+
+    def test_members_and_administrators_can_read_and_mutate(self):
+        for role in ("member", "root"):
+            with self.subTest(role=role), self.session_response({"role": role, "csrfToken": "valid-csrf"}) as upstream:
+                headers = {"Cookie": "session=test", "x-csrf-token": "valid-csrf"}
+                self.assertEqual(SERVER.authorize(headers)["role"], role)
+                self.assertEqual(SERVER.authorize(headers, mutation=True)["role"], role)
+                self.assertEqual(upstream.call_args.args[0].get_header("Cookie"), "session=test")
+
+    def test_missing_cookie_or_invalid_session_is_rejected(self):
+        with mock.patch.object(SERVER.urllib.request, "urlopen") as upstream:
+            with self.assertRaises(SERVER.AppError) as error:
+                SERVER.authorize({})
+            self.assertEqual(error.exception.status, 401)
+            upstream.assert_not_called()
+        for session in (None, {}, [], {"role": None}, {"role": 1}, {"role": " "}):
+            with self.subTest(session=session), self.session_response(session):
+                with self.assertRaises(SERVER.AppError) as error:
+                    SERVER.authorize({"Cookie": "session=test"})
+                self.assertEqual(error.exception.status, 401)
+
+    def test_expired_harness_session_is_rejected(self):
+        expired = SERVER.urllib.error.HTTPError("http://harness/api/v1/session", 401, "expired", {}, None)
+        with mock.patch.object(SERVER.urllib.request, "urlopen", side_effect=expired):
+            with self.assertRaises(SERVER.AppError) as error:
+                SERVER.authorize({"Cookie": "session=expired"})
+            self.assertEqual(error.exception.status, 401)
+
+    def test_members_still_require_valid_csrf_for_mutations(self):
+        for supplied, expected in ((None, "valid"), ("wrong", "valid"), ("valid", "")):
+            with self.subTest(supplied=supplied, expected=expected), self.session_response({"role": "member", "csrfToken": expected}):
+                with self.assertRaises(SERVER.AppError) as error:
+                    SERVER.authorize({"Cookie": "session=test", "x-csrf-token": supplied}, mutation=True)
+                self.assertEqual((error.exception.status, error.exception.code), (403, "csrf_invalid"))
+
+    def test_member_can_replace_shared_token_through_handler(self):
+        handler = object.__new__(SERVER.AppHandler)
+        handler.path = "/api/token"
+        handler.headers = {"Cookie": "session=test", "x-csrf-token": "valid", "Origin": "https://example.test"}
+        handler.read_json = mock.Mock(return_value={"token": "replacement-test-token"})
+        handler.send_json = mock.Mock()
+        with self.session_response({"role": "member", "csrfToken": "valid"}), mock.patch.object(SERVER, "run_cli", return_value={"ok": True}) as cli:
+            handler.do_POST()
+        cli.assert_called_once_with(["set-token", "--stdin"], stdin_text="replacement-test-token", timeout=15)
+        handler.send_json.assert_called_once_with(200, {"token_configured": True})
 
 
 class ValidationTests(unittest.TestCase):
